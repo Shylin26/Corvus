@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+
+  redpanda:
+    image: redpandadata/redpanda:v23.3.9
+    container_name: corvus-kafka
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --overprovisioned
+      - --kafka-addr PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://localhost:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    volumes:
+      - redpanda-data:/var/lib/redpanda/data
+    healthcheck:
+      test: ["CMD", "rpk", "cluster", "info"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redpanda-console:
+    image: redpandadata/console:v2.4.3
+    container_name: corvus-kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+    volumes:
+      - ./infra/redpanda-console-config.yml:/tmp/config.yml:ro
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: corvus-postgres
+    environment:
+      POSTGRES_DB:       corvus
+      POSTGRES_USER:     corvus
+      POSTGRES_PASSWORD: corvus
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./infra/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U corvus"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: corvus-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api-gateway:
+    build: ./infra/services/api-gateway
+    container_name: corvus-api-gateway
+    ports:
+      - "3001:3000"
+    environment:
+      SERVICE_NAME: api-gateway
+    labels:
+      corvus.service: "true"
+      corvus.tier: "edge"
+
+  auth-service:
+    build: ./infra/services/auth-service
+    container_name: corvus-auth
+    environment:
+      SERVICE_NAME: auth-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      corvus.service: "true"
+      corvus.tier: "backend"
+
+  order-service:
+    build: ./infra/services/order-service
+    container_name: corvus-order
+    environment:
+      SERVICE_NAME: order-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      corvus.service: "true"
+      corvus.tier: "backend"
+
+  inventory-service:
+    build: ./infra/services/inventory-service
+    container_name: corvus-inventory
+    environment:
+      SERVICE_NAME: inventory-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+    labels:
+      corvus.service: "true"
+      corvus.tier: "backend"
+
+  notification-service:
+    build: ./infra/services/notification-service
+    container_name: corvus-notification
+    environment:
+      SERVICE_NAME: notification-service
+    labels:
+      corvus.service: "true"
+      corvus.tier: "backend"
+
+volumes:
+  redpanda-data:
+  postgres-data:
+  redis-data:
