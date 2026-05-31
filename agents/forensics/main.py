@@ -85,7 +85,6 @@ def build_prompt(anomaly: dict, logs: list[str], runbooks: list[dict]) -> str:
         )
     else:
         rb_block = "No similar past incidents found."
-
     return (
         f"=== ANOMALY ===\n{anomaly_block}\n\n"
         f"=== RECENT LOGS ===\n{log_block}\n\n"
@@ -229,7 +228,6 @@ class ForensicsAgent:
 
         incident_id = envelope.incident_id
         log.info("Processing incident %s", incident_id)
-
         anomaly = envelope.typed_payload()
 
         logs = await fetch_logs(anomaly.service)
