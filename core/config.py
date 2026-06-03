@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     # General
     env:       str = "development"
     log_level: str = "INFO"
+    llm_mode: str = "mock"
 
     @property
     def cors_origins_list(self) -> list[str]:

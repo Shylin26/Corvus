@@ -5,7 +5,7 @@ import json
 import logging
 
 import httpx
-import ollama
+from core.llm import call_llm as llm_call
 
 from memory.store import search_runbooks
 
@@ -244,7 +244,7 @@ class ForensicsAgent:
         log.info("Runbook search: found %d similar past incidents", len(runbooks))
 
         prompt = build_prompt(anomaly.model_dump(), logs, runbooks)
-        llm_result = await call_llm(prompt)
+        llm_result = await llm_call(prompt, SYSTEM_PROMPT)
 
         if llm_result is not None:
             parsed = parse_llm_response(llm_result)
