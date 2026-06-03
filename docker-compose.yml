@@ -10,8 +10,8 @@ services:
       - --smp 1
       - --memory 512M
       - --overprovisioned
-      - --kafka-addr PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr PLAINTEXT://localhost:9092
+      - --kafka-addr INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      - --advertise-kafka-addr INTERNAL://redpanda:29092,EXTERNAL://localhost:9092
     ports:
       - "9092:9092"
       - "9644:9644"
@@ -81,6 +81,8 @@ services:
   auth-service:
     build: ./infra/services/auth-service
     container_name: corvus-auth
+    ports:
+      - "3002:3000"
     environment:
       SERVICE_NAME: auth-service
     depends_on:
@@ -93,6 +95,8 @@ services:
   order-service:
     build: ./infra/services/order-service
     container_name: corvus-order
+    ports:
+      - "3003:3000"
     environment:
       SERVICE_NAME: order-service
     depends_on:
@@ -105,6 +109,8 @@ services:
   inventory-service:
     build: ./infra/services/inventory-service
     container_name: corvus-inventory
+    ports:
+      - "3004:3000"
     environment:
       SERVICE_NAME: inventory-service
     depends_on:
@@ -117,6 +123,8 @@ services:
   notification-service:
     build: ./infra/services/notification-service
     container_name: corvus-notification
+    ports:
+      - "3005:3000"
     environment:
       SERVICE_NAME: notification-service
     labels:
@@ -127,3 +135,5 @@ volumes:
   redpanda-data:
   postgres-data:
   redis-data:
+
+# NOTE: patch applied below via override
