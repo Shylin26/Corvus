@@ -13,32 +13,31 @@ export default function ApprovalPanel() {
   if (pendingApprovals.length === 0) return null
 
   return (
-    <div className="border border-purple-700 bg-purple-950 rounded-lg p-4 mb-4">
-      <h3 className="text-purple-300 font-semibold text-sm mb-3">
-        ⚠ Pending Approvals ({pendingApprovals.length})
-      </h3>
+    <div className="border border-purple rounded p-3">
+      <div className="text-xs text-purple tracking-widest uppercase mb-3 flex items-center gap-2">
+        <span className="animate-blink">▮</span>
+        APPROVAL REQUIRED ({pendingApprovals.length})
+      </div>
       {pendingApprovals.map((a) => (
-        <div key={a.plan_id} className="bg-gray-900 rounded p-3 mb-2">
-          <div className="flex justify-between items-start mb-2">
-            <div>
-              <div className="text-white text-sm font-semibold">{a.plan_label}</div>
-              <div className="text-gray-400 text-xs">{a.incident_id} — {a.reason}</div>
-              <div className="text-red-400 text-xs">Risk: {(a.risk_score * 100).toFixed(0)}%</div>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={() => respond(a.plan_id, 'approve')}
-                className="px-3 py-1 bg-green-600 hover:bg-green-500 text-white text-xs rounded"
-              >
-                Approve
-              </button>
-              <button
-                onClick={() => respond(a.plan_id, 'reject')}
-                className="px-3 py-1 bg-red-700 hover:bg-red-600 text-white text-xs rounded"
-              >
-                Reject
-              </button>
-            </div>
+        <div key={a.plan_id} className="bg-bg rounded p-3 mb-2 border border-border">
+          <div className="text-xs text-text font-mono mb-1">{a.plan_label}</div>
+          <div className="text-xs text-muted mb-1">{a.incident_id}</div>
+          <div className="text-xs text-red mb-3">
+            RISK {(a.risk_score * 100).toFixed(0)}% — {a.reason}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => respond(a.plan_id, 'approve')}
+              className="flex-1 py-1 border border-green text-green text-xs hover:bg-green hover:text-bg transition-all"
+            >
+              APPROVE
+            </button>
+            <button
+              onClick={() => respond(a.plan_id, 'reject')}
+              className="flex-1 py-1 border border-red text-red text-xs hover:bg-red hover:text-bg transition-all"
+            >
+              REJECT
+            </button>
           </div>
         </div>
       ))}

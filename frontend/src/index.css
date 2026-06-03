@@ -1,3 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600&family=Share+Tech+Mono&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+* { box-sizing: border-box; }
+
+body {
+  background: #080A0C;
+  color: #CDD9E5;
+  font-family: 'IBM Plex Mono', monospace;
+  overflow-x: hidden;
+}
+
+/* scanline overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #0D1117; }
+::-webkit-scrollbar-thumb { background: #1C2128; border-radius: 2px; }
+
+.react-flow__background { background: #080A0C !important; }
+.react-flow__controls { background: #0D1117 !important; border: 1px solid #1C2128 !important; }
+.react-flow__controls-button {
+  background: #0D1117 !important;
+  border-color: #1C2128 !important;
+  color: #768390 !important;
+  fill: #768390 !important;
+}
+.react-flow__edge-path { stroke: #1C2128 !important; }
