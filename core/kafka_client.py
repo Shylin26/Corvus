@@ -50,10 +50,15 @@ class CorvusConsumer:
         poll_timeout: float = 1.0,
     ) -> None:
         self._consumer = Consumer({
-            "bootstrap.servers": settings.kafka_bootstrap_servers,
-            "group.id": group_id,
-            "auto.offset.reset": auto_offset_reset,
-            "enable.auto.commit": True,
+            "bootstrap.servers":         settings.kafka_bootstrap_servers,
+            "group.id":                  group_id,
+            "auto.offset.reset":         auto_offset_reset,
+            "enable.auto.commit":        True,
+            # Give agents 10 minutes to process a message before
+            # the broker considers them dead — Mistral can be slow
+            "session.timeout.ms":        600000,
+            "max.poll.interval.ms":      600000,
+            "heartbeat.interval.ms":     3000,
         })
         self._consumer.subscribe(topics)
         self._poll_timeout = poll_timeout
