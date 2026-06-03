@@ -7,6 +7,8 @@ import logging
 import httpx
 import ollama
 
+from memory.store import search_runbooks
+
 from core.config import settings
 from core.envelope import CorvusEnvelope, DiagnosisPayload, PlanPayload, PlanStep, RemedPlan
 from core.events import AgentID, EventType
@@ -231,7 +233,10 @@ class ForensicsAgent:
         anomaly = envelope.typed_payload()
 
         logs = await fetch_logs(anomaly.service)
-        runbooks: list[dict] = []
+        runbooks = await search_runbooks(
+            f"{anomaly.service} {anomaly.metric} {anomaly.severity}"
+        )
+        log.info("Runbook search: found %d similar past incidents", len(runbooks))
 
         prompt = build_prompt(anomaly.model_dump(), logs, runbooks)
         llm_result = await call_llm(prompt)
