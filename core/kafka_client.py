@@ -56,8 +56,8 @@ class CorvusConsumer:
             "enable.auto.commit":        True,
             # Give agents 10 minutes to process a message before
             # the broker considers them dead — Mistral can be slow
-            "session.timeout.ms":        600000,
-            "max.poll.interval.ms":      600000,
+            "session.timeout.ms":        300000,
+            "max.poll.interval.ms":      300000,
             "heartbeat.interval.ms":     3000,
         })
         self._consumer.subscribe(topics)

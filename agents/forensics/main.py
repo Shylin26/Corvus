@@ -218,11 +218,16 @@ class ForensicsAgent:
     async def run(self) -> None:
         log.info("Forensics agent started — listening on %s", settings.topic_anomaly)
         async for envelope in self.consumer:
-            try:
-                await self._handle(envelope)
-            except Exception as e:
-                log.error("Unhandled error processing incident %s: %s",
-                          envelope.incident_id, e)
+            # Process in background task so consumer keeps polling
+            # This prevents Kafka session timeout during slow Mistral calls
+            asyncio.create_task(self._safe_handle(envelope))
+
+    async def _safe_handle(self, envelope: CorvusEnvelope) -> None:
+        try:
+            await self._handle(envelope)
+        except Exception as e:
+            log.error("Unhandled error processing incident %s: %s",
+                      envelope.incident_id, e)
 
     async def _handle(self, envelope: CorvusEnvelope) -> None:
         if envelope.type != EventType.ANOMALY:
