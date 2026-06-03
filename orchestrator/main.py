@@ -50,6 +50,9 @@ class Orchestrator:
     async def _handle(self, envelope: CorvusEnvelope) -> None:
         incident_id = envelope.incident_id
 
+        # Store event trace for chat interface
+        asyncio.create_task(self._store_trace(envelope))
+
         if envelope.type == EventType.DIAGNOSIS:
             payload = envelope.typed_payload()
             incidents[incident_id] = {
@@ -94,6 +97,23 @@ class Orchestrator:
                 incidents[incident_id]["status"] = status
                 await upsert_incident(incident_id, incidents[incident_id])
             log.info("Incident %s — %s", incident_id, status)
+
+    async def _store_trace(self, envelope) -> None:
+        try:
+            import asyncpg, json
+            conn = await asyncpg.connect(
+                settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+            )
+            await conn.execute(
+                "INSERT INTO event_trace (incident_id, envelope_id, event_type, source, target, payload, trace) "
+                "VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING",
+                envelope.incident_id, envelope.id, str(envelope.type),
+                str(envelope.source), str(envelope.target),
+                json.dumps(envelope.payload), json.dumps(envelope.trace),
+            )
+            await conn.close()
+        except Exception as e:
+            pass
 
     async def _dispatch(self, envelope: CorvusEnvelope, plan) -> None:
         incident_id = envelope.incident_id
@@ -168,3 +188,24 @@ async def main() -> None:
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
+async def _store_event_trace(conn, incident_id: str, envelope) -> None:
+    import json as _json
+    try:
+        await conn.execute(
+            """
+            INSERT INTO event_trace (incident_id, envelope_id, event_type, source, target, payload, trace)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT DO NOTHING
+            """,
+            incident_id,
+            envelope.id,
+            envelope.type.value,
+            envelope.source.value,
+            envelope.target.value,
+            _json.dumps(envelope.payload),
+            _json.dumps(envelope.trace),
+        )
+    except Exception as e:
+        pass
