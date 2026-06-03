@@ -4,9 +4,9 @@ import useStore from '../store'
 const GATEWAY = 'http://localhost:8000'
 
 export default function ChatInterface() {
-  const [input, setInput]     = useState('')
+  const [input, setInput]       = useState('')
   const [messages, setMessages] = useState([
-    { role: 'system', text: 'Ask me anything about incidents. Try: "why was order-service restarted?" or "what caused the last incident?"' }
+    { role: 'system', text: 'Ask me anything. Try: "why was notification-service rolled back?"' }
   ])
   const [loading, setLoading] = useState(false)
   const selectedId = useStore((s) => s.selectedId)
@@ -17,7 +17,6 @@ export default function ChatInterface() {
     setInput('')
     setMessages((m) => [...m, { role: 'user', text: question }])
     setLoading(true)
-
     try {
       const r = await fetch(`${GATEWAY}/chat`, {
         method:  'POST',
@@ -38,14 +37,11 @@ export default function ChatInterface() {
   }
 
   return (
-    <div className="border border-border rounded flex flex-col h-80">
-      <div className="text-xs text-muted tracking-widest uppercase px-3 py-2 border-b border-border">
-        ▸ Ask Corvus
-        {selectedId && (
-          <span className="ml-2 text-blue text-xs">— {selectedId}</span>
-        )}
+    <div className="border border-border rounded flex flex-col" style={{height: '320px'}}>
+      <div className="text-xs text-muted tracking-widest uppercase px-3 py-2 border-b border-border flex items-center justify-between">
+        <span>▸ Ask Corvus</span>
+        {selectedId && <span className="text-blue text-xs">{selectedId}</span>}
       </div>
-
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
         {messages.map((m, i) => (
           <div key={i} className={m.role === 'user' ? 'text-right' : ''}>
@@ -62,19 +58,14 @@ export default function ChatInterface() {
                 <div className="text-xs text-green mb-1">◈ CORVUS</div>
                 <p className="text-text text-xs leading-relaxed">{m.text}</p>
                 {m.trace_steps > 0 && (
-                  <p className="text-muted text-xs mt-1">
-                    {m.trace_steps} trace steps analysed
-                  </p>
+                  <p className="text-muted text-xs mt-1">{m.trace_steps} trace steps analysed</p>
                 )}
               </div>
             )}
           </div>
         ))}
-        {loading && (
-          <div className="text-green text-xs animate-pulse">◈ thinking...</div>
-        )}
+        {loading && <div className="text-green text-xs animate-pulse">◈ thinking...</div>}
       </div>
-
       <div className="border-t border-border flex">
         <input
           value={input}

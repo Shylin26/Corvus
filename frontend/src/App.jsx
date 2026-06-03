@@ -4,6 +4,7 @@ import IncidentTimeline from './components/IncidentTimeline'
 import ApprovalPanel from './components/ApprovalPanel'
 import ChatInterface from './components/ChatInterface'
 import StatusBar from './components/StatusBar'
+import ChatInterface from './components/ChatInterface'
 import { useIncidents } from './hooks/useIncidents'
 import useStore from './store'
 
@@ -95,6 +96,7 @@ export default function App() {
             </div>
             <IncidentTimeline compact />
           </div>
+          <ChatInterface />
         </div>
 
       </main>
