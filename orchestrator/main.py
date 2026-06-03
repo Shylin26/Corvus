@@ -8,6 +8,7 @@ from core.config import settings
 from core.envelope import CorvusEnvelope, ActionPayload
 from core.events import AgentID, EventType, IncidentStatus
 from core.kafka_client import CorvusConsumer, CorvusProducer
+from memory.incidents import upsert_incident, load_incidents
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -31,7 +32,13 @@ class Orchestrator:
             group_id="orchestrator",
         )
 
+    async def load(self) -> None:
+        global incidents
+        incidents = await load_incidents()
+        log.info("Loaded %d incidents from Postgres", len(incidents))
+
     async def run(self) -> None:
+        await self.load()
         log.info("Orchestrator started")
         asyncio.create_task(self._approval_watchdog())
         async for envelope in self.consumer:
@@ -52,6 +59,7 @@ class Orchestrator:
                 "confidence": payload.confidence,
                 "started_at": datetime.now(timezone.utc),
             }
+            await upsert_incident(incident_id, incidents[incident_id])
             log.info("Incident %s — diagnosis received (confidence=%.2f)",
                      incident_id, payload.confidence)
 
@@ -77,20 +85,20 @@ class Orchestrator:
                     "reason":      reason,
                     "expires_at":  datetime.now(timezone.utc) + timedelta(minutes=30),
                 }
-                log.info("Approval required — run: python scripts/approve.py --list")
+            await upsert_incident(incident_id, incidents[incident_id])
 
         elif envelope.type == EventType.INCIDENT_DONE:
             payload = envelope.typed_payload()
             status = IncidentStatus.RESOLVED if payload.resolved else IncidentStatus.ROLLED_BACK
             if incident_id in incidents:
                 incidents[incident_id]["status"] = status
-            log.info("Incident %s — %s (steps=%d, rolled_back=%d)",
-                     incident_id, status,
-                     payload.steps_executed, payload.steps_rolled_back)
+                await upsert_incident(incident_id, incidents[incident_id])
+            log.info("Incident %s — %s", incident_id, status)
 
     async def _dispatch(self, envelope: CorvusEnvelope, plan) -> None:
         incident_id = envelope.incident_id
         incidents[incident_id]["status"] = IncidentStatus.EXECUTING
+        await upsert_incident(incident_id, incidents[incident_id])
 
         action_envelope = envelope.append_trace(
             AgentID.ORCHESTRATOR,
@@ -116,19 +124,17 @@ class Orchestrator:
             now = datetime.now(timezone.utc)
             for plan_id, approval in list(pending_approvals.items()):
                 if now > approval["expires_at"]:
-                    log.warning("Approval expired for plan %s (incident %s)",
-                                plan_id, approval["incident_id"])
+                    log.warning("Approval expired for plan %s", plan_id)
                     pending_approvals.pop(plan_id, None)
                     incident_id = approval["incident_id"]
                     if incident_id in incidents:
                         incidents[incident_id]["status"] = IncidentStatus.FAILED
+                        await upsert_incident(incident_id, incidents[incident_id])
 
     def approve(self, plan_id: str, approver: str = "human") -> bool:
         approval = pending_approvals.pop(plan_id, None)
         if not approval:
-            log.error("No pending approval found for plan %s", plan_id)
             return False
-        log.info("Plan %s approved by %s", plan_id, approver)
         asyncio.create_task(self._dispatch(approval["envelope"], approval["plan"]))
         return True
 
@@ -138,7 +144,7 @@ class Orchestrator:
             return False
         incident_id = approval["incident_id"]
         incidents[incident_id]["status"] = IncidentStatus.FAILED
-        log.info("Plan %s rejected. Note: %s", plan_id, note)
+        asyncio.create_task(upsert_incident(incident_id, incidents[incident_id]))
         return True
 
     def list_pending(self) -> list[dict]:
