@@ -159,3 +159,78 @@ async def stream_incidents():
             except Exception as e:
                 log.error("SSE error: %s", e)
     return EventSourceResponse(event_generator())
+
+
+@app.post("/chat")
+async def chat(body: dict):
+    question = body.get("question", "").strip()
+    incident_id = body.get("incident_id")
+
+    if not question:
+        raise HTTPException(status_code=400, detail="question required")
+
+    try:
+        import asyncpg
+        from core.llm import call_llm
+        from core.config import settings
+
+        conn = await asyncpg.connect(
+            settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        )
+
+        if incident_id:
+            rows = await conn.fetch(
+                "SELECT event_type, source, payload, trace, ts FROM event_trace "
+                "WHERE incident_id=$1 ORDER BY ts ASC",
+                incident_id
+            )
+            incidents_ctx = await conn.fetch(
+                "SELECT status, service, root_cause FROM incidents WHERE id=$1",
+                incident_id
+            )
+            incident_info = dict(incidents_ctx[0]) if incidents_ctx else {}
+        else:
+            rows = await conn.fetch(
+                "SELECT event_type, source, payload, trace, ts FROM event_trace "
+                "ORDER BY ts DESC LIMIT 20"
+            )
+            incident_info = {}
+
+        await conn.close()
+
+        traces = []
+        for row in rows:
+            trace = json.loads(row["trace"]) if row["trace"] else []
+            traces.extend(trace)
+
+        context = "\n".join(traces) if traces else "No reasoning trace available."
+
+        system = """You are Corvus — a self-healing infrastructure AI.
+Answer questions about incidents based on the reasoning trace provided.
+Be concise, specific, and cite the trace steps when relevant.
+If you don't know, say so."""
+
+        prompt = f"""Incident context:
+Service: {incident_info.get('service', 'unknown')}
+Status: {incident_info.get('status', 'unknown')}
+Root cause: {incident_info.get('root_cause', 'unknown')}
+
+Reasoning trace:
+{context}
+
+Question: {question}"""
+
+        result = await call_llm(prompt, system)
+
+        if result is None:
+            answer = f"Based on the trace: {context[:300]}"
+        elif isinstance(result, dict):
+            answer = result.get("root_cause", str(result))
+        else:
+            answer = str(result)
+
+        return {"answer": answer, "trace_steps": len(traces)}
+
+    except Exception as e:
+        log.error("Chat error: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
