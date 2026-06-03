@@ -4,8 +4,6 @@ import asyncio
 import logging
 import time
 
-import docker
-
 from core.config import settings
 from core.envelope import CorvusEnvelope, IncidentDonePayload, StepResultPayload
 from core.events import ActionType, AgentID, EventType
@@ -28,14 +26,20 @@ SERVICE_CONTAINERS = {
 
 class DockerActions:
     def __init__(self) -> None:
-        self._client = docker.from_env()
+        self._client = None
+
+    def _get_client(self):
+        if self._client is None:
+            import docker
+            self._client = docker.from_env()
+        return self._client
 
     def restart_service(self, target: str) -> tuple[bool, str]:
         container_name = SERVICE_CONTAINERS.get(target)
         if not container_name:
             return False, f"Unknown service: {target}"
         try:
-            container = self._client.containers.get(container_name)
+            container = self._get_client().containers.get(container_name)
             container.restart(timeout=10)
             return True, f"Restarted {container_name}"
         except Exception as e:
@@ -63,15 +67,10 @@ class DockerActions:
         elif action_type == ActionType.NOTIFY:
             return self.notify(target, params)
         else:
-            return False, f"Unsupported action type: {action_type}"
+            return False, f"Unsupported action: {action_type}"
 
     def compensate_step(self, action_type: str, target: str, params: dict) -> tuple[bool, str]:
-        if action_type == ActionType.RESTART_SERVICE:
-            return True, f"No compensation needed for restart of {target}"
-        elif action_type == ActionType.FLUSH_CACHE:
-            return True, "Cache flush cannot be undone"
-        else:
-            return True, f"No compensation for {action_type}"
+        return True, f"No compensation needed for {action_type} on {target}"
 
 
 class ExecutorAgent:
@@ -147,10 +146,8 @@ class ExecutorAgent:
             else:
                 log.error("Step %d failed: %s — rolling back", step.order, output)
                 final_success = False
-
                 for prev_step in reversed(executed):
-                    log.info("Rolling back step %d (%s on %s)",
-                             prev_step.order, prev_step.action_type, prev_step.target)
+                    log.info("Rolling back step %d", prev_step.order)
                     _, comp_output = await loop.run_in_executor(
                         None,
                         lambda s=prev_step: self.actions.compensate_step(
@@ -158,14 +155,12 @@ class ExecutorAgent:
                         )
                     )
                     rolled_back += 1
-                    log.info("Rollback step %d: %s", prev_step.order, comp_output)
                 break
 
         duration = time.monotonic() - start
         done_envelope = envelope.append_trace(
             AgentID.EXECUTOR,
-            f"Incident {'resolved' if final_success else 'rolled back'} "
-            f"in {duration:.1f}s"
+            f"Incident {'resolved' if final_success else 'rolled back'} in {duration:.1f}s"
         ).forward_to(
             target=AgentID.ORCHESTRATOR,
             source=AgentID.EXECUTOR,
@@ -183,10 +178,8 @@ class ExecutorAgent:
         self.producer.emit(settings.topic_result, done_envelope)
         self.producer.flush()
 
-        log.info(
-            "Incident %s complete — resolved=%s steps=%d rolled_back=%d duration=%.1fs",
-            incident_id, final_success, len(executed), rolled_back, duration
-        )
+        log.info("Incident %s complete — resolved=%s steps=%d duration=%.1fs",
+                 incident_id, final_success, len(executed), duration)
 
 
 async def main() -> None:
