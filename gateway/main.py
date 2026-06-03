@@ -14,7 +14,7 @@ from core.config import settings
 from core.envelope import CorvusEnvelope
 from core.events import AgentID, EventType
 from core.kafka_client import CorvusProducer
-from orchestrator.main import incidents, pending_approvals, Orchestrator
+from memory.incidents import load_incidents
 
 log = logging.getLogger(__name__)
 logging.basicConfig(
@@ -22,16 +22,13 @@ logging.basicConfig(
     format="%(asctime)s [GATEWAY] %(levelname)s %(message)s",
 )
 
-orchestrator: Orchestrator | None = None
 producer: CorvusProducer | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator, producer
+    global producer
     producer = CorvusProducer()
-    orchestrator = Orchestrator()
-    asyncio.create_task(orchestrator.run())
     log.info("Gateway started")
     yield
     if producer:
@@ -50,55 +47,77 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "incidents": len(incidents)}
+    return {"status": "ok"}
 
 
 @app.get("/incidents")
-def get_incidents():
-    result = []
-    for k, v in incidents.items():
-        item = {"incident_id": k, **v}
-        if hasattr(item.get("started_at"), "isoformat"):
-            item["started_at"] = item["started_at"].isoformat()
-        if "plan" in item:
-            item.pop("plan")
-        result.append(item)
-    return result
-
-
-@app.get("/incidents/{incident_id}")
-def get_incident(incident_id: str):
-    incident = incidents.get(incident_id)
-    if not incident:
-        raise HTTPException(status_code=404, detail="Incident not found")
-    return {"incident_id": incident_id, **incident}
+async def get_incidents():
+    incidents = await load_incidents()
+    return [
+        {"incident_id": k, **v}
+        for k, v in incidents.items()
+    ]
 
 
 @app.get("/approvals/pending")
-def get_pending_approvals():
-    if not orchestrator:
+async def get_pending_approvals():
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(
+            settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        )
+        rows = await conn.fetch(
+            "SELECT id, incident_id, plan_id, reason, expires_at, plan_json FROM approvals WHERE status='pending'"
+        )
+        await conn.close()
+        return [
+            {
+                "plan_id":     row["plan_id"],
+                "incident_id": row["incident_id"],
+                "reason":      row["reason"],
+                "expires_at":  row["expires_at"].isoformat(),
+                "plan_label":  json.loads(row["plan_json"]).get("label", ""),
+                "risk_score":  json.loads(row["plan_json"]).get("risk_score", 1.0),
+            }
+            for row in rows
+        ]
+    except Exception as e:
+        log.error("Failed to load approvals: %s", e)
         return []
-    return orchestrator.list_pending()
 
 
 @app.post("/approvals/{plan_id}/approve")
-def approve_plan(plan_id: str):
-    if not orchestrator:
-        raise HTTPException(status_code=503, detail="Orchestrator not ready")
-    success = orchestrator.approve(plan_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    return {"ok": True, "plan_id": plan_id}
+async def approve_plan(plan_id: str):
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(
+            settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        )
+        await conn.execute(
+            "UPDATE approvals SET status='approved', responded_at=NOW() WHERE plan_id=$1",
+            plan_id
+        )
+        await conn.close()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/approvals/{plan_id}/reject")
-def reject_plan(plan_id: str, body: dict = {}):
-    if not orchestrator:
-        raise HTTPException(status_code=503, detail="Orchestrator not ready")
-    success = orchestrator.reject(plan_id, body.get("note", ""))
-    if not success:
-        raise HTTPException(status_code=404, detail="Plan not found")
-    return {"ok": True, "plan_id": plan_id}
+async def reject_plan(plan_id: str, body: dict = {}):
+    try:
+        import asyncpg
+        conn = await asyncpg.connect(
+            settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+        )
+        await conn.execute(
+            "UPDATE approvals SET status='rejected', note=$1, responded_at=NOW() WHERE plan_id=$2",
+            body.get("note", ""), plan_id
+        )
+        await conn.close()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/internal/metrics")
@@ -118,26 +137,25 @@ async def push_metric(payload: dict):
         producer.flush(timeout=2.0)
         return {"ok": True}
     except Exception as e:
-        log.error("Failed to push metric: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/stream/incidents")
 async def stream_incidents():
     async def event_generator():
-        last_count = 0
+        last_snapshot = None
         while True:
-            await asyncio.sleep(1)
-            current = list(incidents.items())
-            if len(current) != last_count:
-                last_count = len(current)
+            await asyncio.sleep(2)
+            try:
+                incidents = await load_incidents()
                 data = [
-                    {
-                        "incident_id": k,
-                        "status":  v.get("status"),
-                        "service": v.get("service"),
-                    }
-                    for k, v in current
+                    {"incident_id": k, "status": v.get("status"), "service": v.get("service")}
+                    for k, v in incidents.items()
                 ]
-                yield {"data": json.dumps(data)}
+                snapshot = json.dumps(data, sort_keys=True)
+                if snapshot != last_snapshot:
+                    last_snapshot = snapshot
+                    yield {"data": snapshot}
+            except Exception as e:
+                log.error("SSE error: %s", e)
     return EventSourceResponse(event_generator())

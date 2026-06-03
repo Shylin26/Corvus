@@ -28,7 +28,7 @@ class ObserverAgent:
         self.producer  = CorvusProducer()
         self.consumer  = CorvusConsumer(
             topics=[settings.topic_metrics],
-            group_id="observer-agent",
+            group_id="observer-agent-v2",
         )
         # track active incidents to avoid duplicate anomaly spam
         self._active: set[str] = set()
